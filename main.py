@@ -1,7 +1,7 @@
 from fastapi import FastAPI, BackgroundTasks, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles # New import
-from fastapi.responses import FileResponse # New import
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict
 import asyncio
@@ -10,20 +10,20 @@ import json
 import time
 import psycopg2
 from datetime import datetime
-import os # New import
+import os
 
 # ===================================================================
 # --- 1. CONFIGURATION & MODELS ---
 # ===================================================================
-ACCESS_TOKEN = 'EAAZALnS331DYBPMAEqSqDXlEcckOnr7R9jtnUkAcRxb6XXZAx3Kku1t4rxXPyYutVhu5EygpZCoUuiZAqVofspmn8klwdKgnHivEHMHkdhKypIZAotccr3ULeZA1UVv3rCAxMifecljrDAZChLmwUxEvZCZBsxmgafvTHJZCMWegHc1yZCRyP66EPXjbPXblO4zCvXEgxuZAl1ZCecSRHvvBPrYDQTIleLb6qqHiZB096c4WJE'
-PHONE_NUMBER_ID = '709687138895035'
+ACCESS_TOKEN = os.environ.get('ACCESS_TOKEN', 'YOUR_FACEBOOK_ACCESS_TOKEN')
+PHONE_NUMBER_ID = os.environ.get('PHONE_NUMBER_ID', '709687138895035')
 
 DATABASE_CONFIG = {
-    "host": "aws-0-ap-south-1.pooler.supabase.com",
-    "port": "6543",
-    "dbname": "postgres",
-    "user": "postgres.hiteczxisxvecnuncmzp",
-    "password": "VFisGWin@*1963"
+    "host": os.environ.get('DB_HOST', "aws-0-ap-south-1.pooler.supabase.com"),
+    "port": os.environ.get('DB_PORT', "6543"),
+    "dbname": os.environ.get('DB_NAME', "postgres"),
+    "user": os.environ.get('DB_USER', "postgres.hiteczxisxvecnuncmzp"),
+    "password": os.environ.get('DB_PASSWORD', "YOUR_DATABASE_PASSWORD")
 }
 
 class Customer(BaseModel):
@@ -70,20 +70,6 @@ class ConnectionManager:
             await connection.send_text(json.dumps(payload))
 
 log_manager = ConnectionManager()
-
-# ===================================================================
-# --- FastAPI App and Endpoints ---
-# ===================================================================
-app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 
 # ===================================================================
 # --- 3. HELPER FUNCTIONS (WhatsApp & DB) ---
@@ -210,19 +196,15 @@ async def run_campaign_logic(campaign_data: CampaignRequest):
 # --- 5. FastAPI App and Endpoints ---
 # ===================================================================
 app = FastAPI()
+
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 @app.websocket("/ws/log")
 async def websocket_endpoint(websocket: WebSocket):
     await log_manager.connect(websocket)
     try:
-        while True:
-            await websocket.receive_text()
-    except Exception:
-        log_manager.disconnect(websocket)
-
-@app.get("/")
-def read_root(): return {"Hello": "World"}
+        while True: await websocket.receive_text()
+    except Exception: log_manager.disconnect(websocket)
 
 @app.post("/start-campaign")
 def start_campaign(campaign_data: CampaignRequest, background_tasks: BackgroundTasks):
@@ -249,12 +231,13 @@ def post_reply(sender_id: str, reply: Reply, background_tasks: BackgroundTasks):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# --- Serve the Frontend ---
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 @app.get("/")
 async def read_index():
-    # This makes it so visiting the main URL serves your index.html file
     return FileResponse('static/index.html')
 
 @app.get("/app.js")
 async def read_app_js():
-    # This makes sure the browser can find your app.js file
     return FileResponse('static/app.js')
