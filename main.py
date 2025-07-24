@@ -10,7 +10,6 @@ from typing import List, Optional, Dict
 from fastapi import FastAPI, BackgroundTasks, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 # ===================================================================
@@ -194,7 +193,7 @@ async def run_campaign_logic(campaign_data: CampaignRequest):
     await log_manager.broadcast("--- Campaign Finished ---", "info")
 
 # ===================================================================
-# --- 5. FastAPI App and Endpoints ---
+# --- 5. FastAPI App and API Endpoints ---
 # ===================================================================
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -206,7 +205,6 @@ async def websocket_endpoint(websocket: WebSocket):
         while True: await websocket.receive_text()
     except Exception: log_manager.disconnect(websocket)
 
-# --- API Endpoints ---
 @app.post("/start-campaign")
 def start_campaign(campaign_data: CampaignRequest, background_tasks: BackgroundTasks):
     background_tasks.add_task(run_campaign_logic, campaign_data)
@@ -232,11 +230,9 @@ def post_reply(sender_id: str, reply: Reply, background_tasks: BackgroundTasks):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- Serve the Frontend ---
-# This line "mounts" the static folder, making index.html and app.js available
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-@app.get("/")
-async def read_index():
-    # This serves the main index.html file
-    return FileResponse('static/index.html')
+# ===================================================================
+# --- 6. Serve the Frontend ---
+# ===================================================================
+# This mounts the 'static' folder to the root of the site and serves index.html
+# IMPORTANT: This must be the LAST route added to the app.
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
