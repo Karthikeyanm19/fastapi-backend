@@ -148,7 +148,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function connectWebSocket() {
-        const ws = new WebSocket('ws://127.0.0.1:8000/ws/log');
+        const ws = new WebSocket('ws://127.0.0.1wss://doofy-fastapi-app.onrender.com/ws/log:8000/ws/log');
         ws.onopen = () => {
             liveLog.innerHTML = '<span class="log-info">Connected to backend log...</span>';
         };
