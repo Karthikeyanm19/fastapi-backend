@@ -1,16 +1,17 @@
+import os
+import asyncio
+import json
+import time
+import psycopg2
+import requests
+from datetime import datetime
+from typing import List, Optional, Dict
+
 from fastapi import FastAPI, BackgroundTasks, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import List, Optional, Dict
-import asyncio
-import requests
-import json
-import time
-import psycopg2
-from datetime import datetime
-import os
 
 # ===================================================================
 # --- 1. CONFIGURATION & MODELS ---
@@ -196,7 +197,6 @@ async def run_campaign_logic(campaign_data: CampaignRequest):
 # --- 5. FastAPI App and Endpoints ---
 # ===================================================================
 app = FastAPI()
-
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 @app.websocket("/ws/log")
@@ -206,6 +206,7 @@ async def websocket_endpoint(websocket: WebSocket):
         while True: await websocket.receive_text()
     except Exception: log_manager.disconnect(websocket)
 
+# --- API Endpoints ---
 @app.post("/start-campaign")
 def start_campaign(campaign_data: CampaignRequest, background_tasks: BackgroundTasks):
     background_tasks.add_task(run_campaign_logic, campaign_data)
@@ -232,12 +233,10 @@ def post_reply(sender_id: str, reply: Reply, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- Serve the Frontend ---
+# This line "mounts" the static folder, making index.html and app.js available
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
 async def read_index():
+    # This serves the main index.html file
     return FileResponse('static/index.html')
-
-@app.get("/app.js")
-async def read_app_js():
-    return FileResponse('static/app.js')

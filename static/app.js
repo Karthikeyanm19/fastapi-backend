@@ -109,7 +109,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function fetchAndDisplayConversations() {
         try {
-            const response = await fetch('http://127.0.0.1:8000/conversations');
+            const response = await fetch('/conversations');
             if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
             const data = await response.json();
             conversationList.innerHTML = '';
@@ -127,7 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         a.classList.add('active');
                         messageHistory.innerHTML = '<p class="text-muted text-center">Loading messages...</p>';
                         try {
-                            const historyResponse = await fetch(`http://127.0.0.1:8000/conversations/${senderId}`);
+                            const historyResponse = await fetch(`/conversations/${senderId}`);
                             const messages = await historyResponse.json();
                             displayMessageHistory(messages);
                             replyInput.disabled = false;
@@ -148,7 +148,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function connectWebSocket() {
-        const ws = new WebSocket('ws://127.0.0.1wss://doofy-fastapi-app.onrender.com/ws/log:8000/ws/log');
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${wsProtocol}//${window.location.host}/ws/log`;
+        const ws = new WebSocket(wsUrl);
+        
         ws.onopen = () => {
             liveLog.innerHTML = '<span class="log-info">Connected to backend log...</span>';
         };
@@ -215,7 +218,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (customers.length === 0) { alert('Please load or add customers.'); return; }
         const campaignData = { campaign_type: campaignType, template_name: templateName, image_url: imageUrl || null, customers: customers };
         try {
-            const response = await fetch('http://127.0.0.1:8000/start-campaign', {
+            const response = await fetch('/start-campaign', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(campaignData),
@@ -234,14 +237,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!messageText || !currentConversationId) return;
         sendReplyButton.disabled = true;
         try {
-            const response = await fetch(`http://127.0.0.1:8000/conversations/${currentConversationId}/reply`, {
+            const response = await fetch(`/conversations/${currentConversationId}/reply`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ message: messageText })
             });
             if (!response.ok) throw new Error('Failed to send reply.');
             replyInput.value = '';
-            const historyResponse = await fetch(`http://127.0.0.1:8000/conversations/${currentConversationId}`);
+            const historyResponse = await fetch(`/conversations/${currentConversationId}`);
             const messages = await historyResponse.json();
             displayMessageHistory(messages);
         } catch (error) {
