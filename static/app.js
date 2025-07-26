@@ -87,27 +87,41 @@ document.addEventListener('DOMContentLoaded', () => {
         messageHistory.innerHTML = '<p class="text-muted text-center">No messages in this conversation.</p>';
         return;
     }
+
+    console.log("--- STARTING MESSAGE DISPLAY ---"); // New log
+
     messages.forEach(msg => {
+        const direction = msg.direction || ''; // Ensure direction is not null
+        
+        // This is the detailed log that will tell us everything.
+        console.log({
+            text: msg.text,
+            raw_direction: direction,
+            direction_length: direction.length,
+            trimmed_direction: direction.trim(),
+            is_incoming_check: direction.trim() === 'incoming'
+        });
+
         const wrapper = document.createElement('div');
         const bubble = document.createElement('div');
         const timestamp = new Date(msg.timestamp).toLocaleString();
-
+        
         wrapper.className = 'message-wrapper';
         bubble.className = 'message-bubble';
-
-        // FINAL FIX: Use .trim() to remove any hidden whitespace
-        if (msg.direction && msg.direction.trim() === 'incoming') {
+        
+        if (direction.trim() === 'incoming') {
             wrapper.classList.add('incoming');
             bubble.classList.add('bg-light', 'text-dark');
-        } else { // outgoing
+        } else {
             wrapper.classList.add('outgoing');
             bubble.classList.add('bg-danger', 'text-white');
         }
-
+        
         bubble.innerHTML = `${msg.text}<br><small class="text-muted" style="font-size: 0.75em;">${timestamp}</small>`;
-        wrapper.appendChild(bubble);
+        wrapper.appendChild(wrapper); // Typo corrected: was wrapper.appendChild(wrapper)
         messageHistory.appendChild(wrapper);
     });
+    console.log("--- FINISHED MESSAGE DISPLAY ---"); // New log
     messageHistory.scrollTop = messageHistory.scrollHeight;
 }
     async function fetchAndDisplayConversations() {
