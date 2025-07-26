@@ -148,31 +148,42 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function connectWebSocket() {
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${wsProtocol}//${window.location.host}/ws/log`;
-        const ws = new WebSocket(wsUrl);
-        
-        ws.onopen = () => {
-            liveLog.innerHTML = '<span class="log-info">Connected to backend log...</span>';
-        };
-        ws.onmessage = (event) => {
-            const logData = JSON.parse(event.data);
-            const logLine = document.createElement('span');
-            logLine.textContent = `\n[${new Date().toLocaleTimeString()}] ${logData.message}`;
-            logLine.className = `log-line log-${logData.status}`;
-            liveLog.appendChild(logLine);
-            liveLog.scrollTop = liveLog.scrollHeight;
-        };
-        ws.onclose = () => {
-            const reconnectMsg = document.createElement('span');
-            reconnectMsg.textContent = '\nConnection lost. Attempting to reconnect...';
-            reconnectMsg.className = 'log-line log-warning';
-            liveLog.appendChild(reconnectMsg);
-            setTimeout(connectWebSocket, 3000);
-        };
-        ws.onerror = (error) => { ws.close(); };
-    }
+    // This logic automatically chooses 'wss://' on your live site (https)
+    // and 'ws://' on your local server (http).
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProtocol}//${window.location.host}/ws/log`;
+    
+    console.log(`Connecting WebSocket to: ${wsUrl}`);
+    const ws = new WebSocket(wsUrl);
 
+    ws.onopen = () => {
+        console.log('WebSocket connection established.');
+        liveLog.innerHTML = '<span class="log-info">Connected to backend log...</span>';
+    };
+
+    ws.onmessage = (event) => {
+        const logData = JSON.parse(event.data);
+        const logLine = document.createElement('span');
+        logLine.textContent = `\n[${new Date().toLocaleTimeString()}] ${logData.message}`;
+        logLine.className = `log-line log-${logData.status}`;
+        liveLog.appendChild(logLine);
+        liveLog.scrollTop = liveLog.scrollHeight;
+    };
+
+    ws.onclose = () => {
+        console.log('WebSocket connection closed. Reconnecting in 3 seconds...');
+        const reconnectMsg = document.createElement('span');
+        reconnectMsg.textContent = '\nConnection lost. Attempting to reconnect...';
+        reconnectMsg.className = 'log-line log-warning';
+        liveLog.appendChild(reconnectMsg);
+        setTimeout(connectWebSocket, 3000);
+    };
+
+    ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        ws.close();
+    };
+}
     function savePresets(presets) { localStorage.setItem('campaignPresets', JSON.stringify(presets)); }
     function loadPresets() { const p = localStorage.getItem('campaignPresets'); return p ? JSON.parse(p) : {}; }
     function updatePresetDropdown() {
