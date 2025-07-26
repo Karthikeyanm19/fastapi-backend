@@ -82,34 +82,39 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function displayMessageHistory(messages) {
-        messageHistory.innerHTML = '';
-        if (!messages || messages.length === 0) {
-            messageHistory.innerHTML = '<p class="text-muted text-center">No messages in this conversation.</p>';
-            return;
-        }
-        messages.forEach(msg => {
-            const wrapper = document.createElement('div');
-            const bubble = document.createElement('div');
-            const timestamp = new Date(msg.timestamp).toLocaleString();
-            wrapper.className = 'message-wrapper';
-            bubble.className = 'message-bubble';
-            if (msg.direction === 'incoming') {
-                // ADD THIS ALERT
-                alert("Found an INCOMING message!"); 
-                wrapper.classList.add('incoming');
-                bubble.classList.add('bg-light', 'text-dark');
-            } else {
-                // ADD THIS ALERT
-                alert("Found an OUTGOING message!");
-                wrapper.classList.add('outgoing');
-                bubble.classList.add('bg-danger', 'text-white');
-            }
-            bubble.innerHTML = `${msg.text}<br><small class="text-muted" style="font-size: 0.75em;">${timestamp}</small>`;
-            wrapper.appendChild(bubble);
-            messageHistory.appendChild(wrapper);
-        });
-        messageHistory.scrollTop = messageHistory.scrollHeight;
+    messageHistory.innerHTML = '';
+    if (!messages || messages.length === 0) {
+        messageHistory.innerHTML = '<p class="text-muted text-center">No messages in this conversation.</p>';
+        return;
     }
+    messages.forEach(msg => {
+        // This test will tell us exactly what the code is doing
+        if (msg.direction === 'incoming') {
+            alert("Logic Check: This message is INCOMING.");
+        } else {
+            alert("Logic Check: This message is OUTGOING.");
+        }
+
+        const wrapper = document.createElement('div');
+        const bubble = document.createElement('div');
+        const timestamp = new Date(msg.timestamp).toLocaleString();
+        wrapper.className = 'message-wrapper';
+        bubble.className = 'message-bubble';
+        
+        if (msg.direction === 'incoming') {
+            wrapper.classList.add('incoming');
+            bubble.classList.add('bg-light', 'text-dark');
+        } else {
+            wrapper.classList.add('outgoing');
+            bubble.classList.add('bg-danger', 'text-white');
+        }
+        
+        bubble.innerHTML = `${msg.text}<br><small class="text-muted" style="font-size: 0.75em;">${timestamp}</small>`;
+        wrapper.appendChild(bubble);
+        messageHistory.appendChild(wrapper);
+    });
+    messageHistory.scrollTop = messageHistory.scrollHeight;
+}
 
     async function fetchAndDisplayConversations() {
         try {
