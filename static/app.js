@@ -94,9 +94,13 @@ document.addEventListener('DOMContentLoaded', () => {
             wrapper.className = 'message-wrapper';
             bubble.className = 'message-bubble';
             if (msg.direction === 'incoming') {
+                // ADD THIS ALERT
+                alert("Found an INCOMING message!"); 
                 wrapper.classList.add('incoming');
                 bubble.classList.add('bg-light', 'text-dark');
             } else {
+                // ADD THIS ALERT
+                alert("Found an OUTGOING message!");
                 wrapper.classList.add('outgoing');
                 bubble.classList.add('bg-danger', 'text-white');
             }
