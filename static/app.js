@@ -88,34 +88,28 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
     }
     messages.forEach(msg => {
-        // This test will tell us exactly what the code is doing
-        if (msg.direction === 'incoming') {
-            alert("Logic Check: This message is INCOMING.");
-        } else {
-            alert("Logic Check: This message is OUTGOING.");
-        }
-
         const wrapper = document.createElement('div');
         const bubble = document.createElement('div');
         const timestamp = new Date(msg.timestamp).toLocaleString();
+
         wrapper.className = 'message-wrapper';
         bubble.className = 'message-bubble';
-        
-        if (msg.direction === 'incoming') {
+
+        // FINAL FIX: Use .trim() to remove any hidden whitespace
+        if (msg.direction && msg.direction.trim() === 'incoming') {
             wrapper.classList.add('incoming');
             bubble.classList.add('bg-light', 'text-dark');
-        } else {
+        } else { // outgoing
             wrapper.classList.add('outgoing');
             bubble.classList.add('bg-danger', 'text-white');
         }
-        
+
         bubble.innerHTML = `${msg.text}<br><small class="text-muted" style="font-size: 0.75em;">${timestamp}</small>`;
         wrapper.appendChild(bubble);
         messageHistory.appendChild(wrapper);
     });
     messageHistory.scrollTop = messageHistory.scrollHeight;
 }
-
     async function fetchAndDisplayConversations() {
         try {
             const response = await fetch('/conversations');
