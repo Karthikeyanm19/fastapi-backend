@@ -162,13 +162,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function connectWebSocket() {
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${wsProtocol}//${window.location.host}/ws/log`;
-        const ws = new WebSocket(wsUrl);
-        
-        ws.onopen = () => {
-            liveLog.innerHTML = '<span class="log-info">Connected to backend log...</span>';
-        };
+    // This logic automatically chooses 'wss://' on your live site
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProtocol}//${window.location.host}/ws/log`;
+    
+    console.log(`Connecting WebSocket to: ${wsUrl}`);
+    const ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+        console.log('WebSocket connection established.');
+        liveLog.innerHTML = '<span class="log-info">Connected to backend log...</span>';
+    };
         ws.onmessage = (event) => {
             const logData = JSON.parse(event.data);
             const logLine = document.createElement('span');
