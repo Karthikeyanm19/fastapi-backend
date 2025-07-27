@@ -44,7 +44,7 @@ class CampaignRequest(BaseModel):
 
 class Message(BaseModel):
     text: str
-    timestamp: str
+    timestamp: datetime
     direction: str
 
 class Reply(BaseModel):
@@ -119,6 +119,8 @@ def fetch_conversations_from_db():
     finally:
         if conn: conn.close()
 
+# In main.py, replace this entire function
+
 def fetch_messages_for_sender_from_db(sender_id: str):
     conn = None
     try:
@@ -128,7 +130,10 @@ def fetch_messages_for_sender_from_db(sender_id: str):
         cur.execute("SELECT message_text, created_at, direction FROM messages WHERE sender_id = %s ORDER BY created_at ASC;", (sender_id,))
         messages = cur.fetchall()
         cur.close()
-        message_list = [{"text": msg[0], "timestamp": msg[1].isoformat(), "direction": (msg[2] or '').strip("'")} for msg in messages]
+        
+        # THE FIX IS HERE: We strip the extra quotes from the direction string (msg[2])
+        message_list = [{"text": msg[0], "timestamp": msg[1].isoformat(), "direction": msg[2].strip("'")} for msg in messages]
+        
         return message_list
     except Exception as e:
         print(f"Database Error: {e}")
@@ -148,22 +153,6 @@ def save_outgoing_message_to_db(sender_id, message_text):
         cur.close()
     except Exception as e:
         print(f"❌ DB Error (save outgoing): {e}")
-    finally:
-        if conn: conn.close()
-
-def save_incoming_message_to_db(sender_id, message_text):
-    conn = None
-    try:
-        conn_string = f"host={DATABASE_CONFIG['host']} dbname={DATABASE_CONFIG['dbname']} user={DATABASE_CONFIG['user']} password={DATABASE_CONFIG['password']} port={DATABASE_CONFIG['port']} options='-c pool_mode=transaction' connect_timeout=10"
-        conn = psycopg2.connect(conn_string)
-        cur = conn.cursor()
-        sql_query = "INSERT INTO messages (sender_id, message_text, direction) VALUES (%s, %s, 'incoming');"
-        cur.execute(sql_query, (sender_id, message_text))
-        conn.commit()
-        cur.close()
-        print(f"✔ Saved incoming message from {sender_id} to database.")
-    except Exception as e:
-        print(f"❌ DB Error (save incoming): {e}")
     finally:
         if conn: conn.close()
 
@@ -230,12 +219,22 @@ def start_campaign(campaign_data: CampaignRequest, background_tasks: BackgroundT
 def get_conversations():
     return {"conversations": fetch_conversations_from_db()}
 
+# In main.py, replace this entire function
+
 @app.get("/conversations/{sender_id}", response_model=List[Message])
 def get_conversation_history(sender_id: str):
-    messages = fetch_messages_for_sender_from_db(sender_id)
-    if isinstance(messages, dict) and "error" in messages:
-        raise HTTPException(status_code=500, detail=messages["error"])
-    return messages
+    print("--- DEBUG: Fetching history for sender:", sender_id)
+    messages_from_db = fetch_messages_for_sender_from_db(sender_id)
+    
+    # This will show us the raw data from the database function
+    print("--- DEBUG: Raw data received from DB function:", messages_from_db)
+
+    if isinstance(messages_from_db, dict) and "error" in messages_from_db:
+        print("--- DEBUG: Raising HTTPException due to DB error.")
+        raise HTTPException(status_code=500, detail=messages_from_db["error"])
+
+    print("--- DEBUG: Data appears valid, returning to user.")
+    return messages_from_db
 
 @app.post("/conversations/{sender_id}/reply")
 def post_reply(sender_id: str, reply: Reply, background_tasks: BackgroundTasks):
