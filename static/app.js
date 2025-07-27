@@ -81,6 +81,8 @@ document.addEventListener('DOMContentLoaded', () => {
         return data;
     }
 
+    // In app.js, replace this entire function
+
     function displayMessageHistory(messages) {
         messageHistory.innerHTML = '';
         if (!messages || messages.length === 0) {
@@ -91,8 +93,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const wrapper = document.createElement('div');
             const bubble = document.createElement('div');
             const timestamp = new Date(msg.timestamp).toLocaleString();
+            
             wrapper.className = 'message-wrapper';
             bubble.className = 'message-bubble';
+            
             if (msg.direction && msg.direction.trim() === 'incoming') {
                 wrapper.classList.add('incoming');
                 bubble.classList.add('bg-light', 'text-dark');
@@ -100,8 +104,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 wrapper.classList.add('outgoing');
                 bubble.classList.add('bg-danger', 'text-white');
             }
+            
             bubble.innerHTML = `${msg.text}<br><small class="text-muted" style="font-size: 0.75em;">${timestamp}</small>`;
-            wrapper.appendChild(bubble);
+            
+            // This is the corrected line
+            wrapper.appendChild(bubble); 
+            
             messageHistory.appendChild(wrapper);
         });
         messageHistory.scrollTop = messageHistory.scrollHeight;
