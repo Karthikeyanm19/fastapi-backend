@@ -1,0 +1,253 @@
+import os
+import asyncio
+import json
+import time
+import psycopg2
+import requests
+from datetime import datetime
+from typing import List, Optional, Dict
+
+from fastapi import FastAPI, BackgroundTasks, HTTPException, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+# ===================================================================
+# --- 1. CONFIGURATION & MODELS ---
+# ===================================================================
+ACCESS_TOKEN = os.environ.get('ACCESS_TOKEN', 'YOUR_FACEBOOK_ACCESS_TOKEN')
+PHONE_NUMBER_ID = os.environ.get('PHONE_NUMBER_ID', '709687138895035')
+
+DATABASE_CONFIG = {
+    "host": os.environ.get('DB_HOST', "aws-0-ap-south-1.pooler.supabase.com"),
+    "port": os.environ.get('DB_PORT', "6543"),
+    "dbname": os.environ.get('DB_NAME', "postgres"),
+    "user": os.environ.get('DB_USER', "postgres.hiteczxisxvecnuncmzp"),
+    "password": os.environ.get('DB_PASSWORD', "YOUR_DATABASE_PASSWORD")
+}
+
+class Customer(BaseModel):
+    phone: str
+    name: str
+    country_code: Optional[str] = ""
+    order_status: Optional[str] = None
+    tracking_id: Optional[str] = None
+    product_name: Optional[str] = None
+    offer_code: Optional[str] = None
+    promo_link_id: Optional[str] = None
+
+class CampaignRequest(BaseModel):
+    campaign_type: str
+    template_name: str
+    image_url: Optional[str] = None
+    customers: List[Customer]
+
+class Message(BaseModel):
+    text: str
+    timestamp: datetime
+    direction: str
+
+class Reply(BaseModel):
+    message: str
+
+# ===================================================================
+# --- 2. WebSocket Log Manager ---
+# ===================================================================
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: str, status: str = "info"):
+        payload = {"message": message, "status": status}
+        for connection in self.active_connections:
+            await connection.send_text(json.dumps(payload))
+
+log_manager = ConnectionManager()
+
+# ===================================================================
+# --- 3. HELPER FUNCTIONS (WhatsApp & DB) ---
+# ===================================================================
+def create_text_body(variables):
+    if not variables: return None
+    return {"type": "body", "parameters": [{"type": "text", "text": var} for var in variables]}
+
+def create_image_header(image_url):
+    return {"type": "header", "parameters": [{"type": "image", "image": {"link": image_url}}]}
+
+def create_dynamic_url_button(button_index, url_variable):
+    return {"type": "button", "sub_type": "url", "index": str(button_index), "parameters": [{"type": "text", "text": url_variable}]}
+
+def send_whatsapp_template(recipient_number, template_name, components=None, language_code="en_US"):
+    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
+    template_data = {"name": template_name, "language": {"code": language_code}}
+    if components:
+        template_data["components"] = [comp for comp in components if comp is not None]
+    payload = {"messaging_product": "whatsapp", "to": recipient_number, "type": "template", "template": template_data}
+    response = requests.post(url, headers=headers, data=json.dumps(payload))
+    response.raise_for_status()
+    return response.json()
+
+def send_text_reply(recipient_number, message_text):
+    url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
+    payload = { "messaging_product": "whatsapp", "to": recipient_number, "type": "text", "text": {"body": message_text} }
+    response = requests.post(url, headers=headers, data=json.dumps(payload))
+    response.raise_for_status()
+    return response.json()
+
+def fetch_conversations_from_db():
+    conn = None
+    try:
+        conn_string = f"host={DATABASE_CONFIG['host']} dbname={DATABASE_CONFIG['dbname']} user={DATABASE_CONFIG['user']} password={DATABASE_CONFIG['password']} port={DATABASE_CONFIG['port']} options='-c pool_mode=transaction' connect_timeout=10"
+        conn = psycopg2.connect(conn_string)
+        cur = conn.cursor()
+        cur.execute("SELECT DISTINCT sender_id FROM messages ORDER BY sender_id;")
+        conversations = cur.fetchall()
+        cur.close()
+        return [convo[0] for convo in conversations]
+    except Exception as e:
+        print(f"Database Error: {e}")
+        return {"error": str(e)}
+    finally:
+        if conn: conn.close()
+
+# In main.py, replace this entire function
+
+def fetch_messages_for_sender_from_db(sender_id: str):
+    conn = None
+    try:
+        conn_string = f"host={DATABASE_CONFIG['host']} dbname={DATABASE_CONFIG['dbname']} user={DATABASE_CONFIG['user']} password={DATABASE_CONFIG['password']} port={DATABASE_CONFIG['port']} options='-c pool_mode=transaction' connect_timeout=10"
+        conn = psycopg2.connect(conn_string)
+        cur = conn.cursor()
+        cur.execute("SELECT message_text, created_at, direction FROM messages WHERE sender_id = %s ORDER BY created_at ASC;", (sender_id,))
+        messages = cur.fetchall()
+        cur.close()
+        
+        # THE FIX IS HERE: We strip the extra quotes from the direction string (msg[2])
+        message_list = [{"text": msg[0], "timestamp": msg[1].isoformat(), "direction": msg[2].strip("'")} for msg in messages]
+        
+        return message_list
+    except Exception as e:
+        print(f"Database Error: {e}")
+        return {"error": str(e)}
+    finally:
+        if conn: conn.close()
+
+def save_outgoing_message_to_db(sender_id, message_text):
+    conn = None
+    try:
+        conn_string = f"host={DATABASE_CONFIG['host']} dbname={DATABASE_CONFIG['dbname']} user={DATABASE_CONFIG['user']} password={DATABASE_CONFIG['password']} port={DATABASE_CONFIG['port']} options='-c pool_mode=transaction' connect_timeout=10"
+        conn = psycopg2.connect(conn_string)
+        cur = conn.cursor()
+        sql_query = "INSERT INTO messages (sender_id, message_text, direction) VALUES (%s, %s, 'outgoing');"
+        cur.execute(sql_query, (sender_id, message_text))
+        conn.commit()
+        cur.close()
+    except Exception as e:
+        print(f"❌ DB Error (save outgoing): {e}")
+    finally:
+        if conn: conn.close()
+
+# ===================================================================
+# --- 4. Campaign Logic (Background Task) ---
+# ===================================================================
+async def run_campaign_logic(campaign_data: CampaignRequest):
+    await log_manager.broadcast(f"--- Starting Campaign '{campaign_data.template_name}' ---", "info")
+    campaign_type = campaign_data.campaign_type
+    
+    for customer in campaign_data.customers:
+        recipient_number = f"{customer.country_code or ''}{customer.phone}"
+        customer_name = customer.name
+        if not recipient_number or not customer_name:
+            await log_manager.broadcast(f"⚠️ Skipping row due to missing name or phone.", "warning")
+            continue
+        try:
+            components = []
+            if campaign_type == "promo_image":
+                if not campaign_data.image_url: await log_manager.broadcast(f"⚠️ Skipping {customer_name}: Image URL required.", "warning"); continue
+                components = [create_image_header(campaign_data.image_url)]
+            elif campaign_type == "order_update":
+                order_status = customer.order_status or 'processed'
+                components = [create_text_body([customer_name, order_status])]
+            elif campaign_type == "image_body":
+                if not campaign_data.image_url: await log_manager.broadcast(f"⚠️ Skipping {customer_name}: Image URL required.", "warning"); continue
+                components = [create_image_header(campaign_data.image_url), create_text_body([customer_name])]
+            elif campaign_type == "tracking_link":
+                tracking_id = customer.tracking_id or 'not-available'
+                components = [create_text_body([customer_name]), create_dynamic_url_button(0, tracking_id)]
+            elif campaign_type == "full_template":
+                if not campaign_data.image_url: await log_manager.broadcast(f"⚠️ Skipping {customer_name}: Image URL required.", "warning"); continue
+                product_name = customer.product_name or 'our latest product'
+                offer_code = customer.offer_code or 'SALE25'
+                promo_link_id = customer.promo_link_id or 'default-promo'
+                components = [create_image_header(campaign_data.image_url), create_text_body([customer_name, product_name, offer_code]), create_dynamic_url_button(0, promo_link_id)]
+            
+            send_whatsapp_template(recipient_number, campaign_data.template_name, components)
+            await log_manager.broadcast(f"✔ Sent '{campaign_data.template_name}' to {customer_name}", "success")
+        except Exception as e:
+            await log_manager.broadcast(f"❌ Failed to send to {customer_name}. Error: {e}", "error")
+        await asyncio.sleep(1)
+    await log_manager.broadcast("--- Campaign Finished ---", "info")
+
+# ===================================================================
+# --- 5. FastAPI App and API Endpoints ---
+# ===================================================================
+app = FastAPI()
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+@app.websocket("/ws/log")
+async def websocket_endpoint(websocket: WebSocket):
+    await log_manager.connect(websocket)
+    try:
+        while True: await websocket.receive_text()
+    except Exception: log_manager.disconnect(websocket)
+
+@app.post("/start-campaign")
+def start_campaign(campaign_data: CampaignRequest, background_tasks: BackgroundTasks):
+    background_tasks.add_task(run_campaign_logic, campaign_data)
+    return {"status": "Campaign has been started in the background."}
+
+@app.get("/conversations")
+def get_conversations():
+    return {"conversations": fetch_conversations_from_db()}
+
+# In main.py, replace this entire function
+
+@app.get("/conversations/{sender_id}", response_model=List[Message])
+def get_conversation_history(sender_id: str):
+    print("--- DEBUG: Fetching history for sender:", sender_id)
+    messages_from_db = fetch_messages_for_sender_from_db(sender_id)
+    
+    # This will show us the raw data from the database function
+    print("--- DEBUG: Raw data received from DB function:", messages_from_db)
+
+    if isinstance(messages_from_db, dict) and "error" in messages_from_db:
+        print("--- DEBUG: Raising HTTPException due to DB error.")
+        raise HTTPException(status_code=500, detail=messages_from_db["error"])
+
+    print("--- DEBUG: Data appears valid, returning to user.")
+    return messages_from_db
+
+@app.post("/conversations/{sender_id}/reply")
+def post_reply(sender_id: str, reply: Reply, background_tasks: BackgroundTasks):
+    try:
+        send_text_reply(sender_id, reply.message)
+        background_tasks.add_task(save_outgoing_message_to_db, sender_id, reply.message)
+        return {"status": "Reply sent successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ===================================================================
+# --- 6. Serve the Frontend ---
+# ===================================================================
+# This mounts the 'static' folder to the root of the site and serves index.html
+# IMPORTANT: This must be the LAST route added to the app.
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
