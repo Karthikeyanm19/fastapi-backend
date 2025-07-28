@@ -202,7 +202,7 @@ document.addEventListener('DOMContentLoaded', () => {
         logLine.className = `log-line log-${status}`;
         liveLog.appendChild(logLine);
         // This is the auto-scroll logic
-        liveLog.scrollTop = liveLog.scrollHeight;
+        liveLog.scrollTop = liveLog.scrollIntoView;
     }
 
 
