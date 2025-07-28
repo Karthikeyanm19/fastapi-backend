@@ -160,9 +160,11 @@ document.addEventListener('DOMContentLoaded', () => {
         
         ws.onopen = () => {
             liveLog.innerHTML = '<span class="log-info">Connected to backend log...</span>';
+            logToUI('Connected to backend log...', 'success');
         };
         ws.onmessage = (event) => {
             const logData = JSON.parse(event.data);
+            logToUI(logData.message, logData.status);
             const logLine = document.createElement('span');
             logLine.textContent = `\n[${new Date().toLocaleTimeString()}] ${logData.message}`;
             logLine.className = `log-line log-${logData.status}`;
@@ -174,6 +176,7 @@ document.addEventListener('DOMContentLoaded', () => {
             reconnectMsg.textContent = '\nConnection lost. Attempting to reconnect...';
             reconnectMsg.className = 'log-line log-warning';
             liveLog.appendChild(reconnectMsg);
+            logToUI('Connection lost. Attempting to reconnect...', 'warning');
             setTimeout(connectWebSocket, 3000);
         };
         ws.onerror = (error) => { ws.close(); };
@@ -192,6 +195,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function logToUI(message, status = 'info') {
+        const timestamp = new Date().toLocaleTimeString();
+        const logLine = document.createElement('span');
+        logLine.textContent = `\n[${timestamp}] ${message}`;
+        logLine.className = `log-line log-${status}`;
+        liveLog.appendChild(logLine);
+        // This is the auto-scroll logic
+        liveLog.scrollTop = liveLog.scrollHeight;
+    }
+
+
     // --- 4. EVENT LISTENERS ---
     loadCsvButton.addEventListener('click', () => csvFileInput.click());
     csvFileInput.addEventListener('change', (event) => {
@@ -199,13 +213,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!file) return;
         const reader = new FileReader();
         reader.onload = (e) => {
-            try { customers = parseCSV(e.target.result); displayCustomers(); }
-            catch (error) { alert('Error: Could not parse the CSV file.'); }
+            try { customers = parseCSV(e.target.result); displayCustomers();logToUI(`✔ Loaded ${customers.length} customers from CSV.`, 'success'); }
+            catch (error) {logToUI(`❌ Error: Could not parse the CSV file.`, 'error'); alert('Error: Could not parse the CSV file.'); }
         };
         reader.readAsText(file);
         event.target.value = '';
     });
-    clearListButton.addEventListener('click', () => { customers = []; displayCustomers(); });
+    clearListButton.addEventListener('click', () => { customers = []; displayCustomers();logToUI('ℹ️ Customer list cleared.', 'info'); });
     manualAddButton.addEventListener('click', () => {
         const name = manualNameInput.value.trim();
         const phone = manualPhoneInput.value.trim();
@@ -213,6 +227,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!name || !phone) { alert('Please enter at least a name and phone number.'); return; }
         customers.push({ name, phone, country_code });
         displayCustomers();
+        logToUI(`✔ Manually added customer: ${name}.`, 'success');
         manualNameInput.value = ''; manualPhoneInput.value = ''; manualCcInput.value = '';
     });
     startCampaignButton.addEventListener('click', async () => {
@@ -223,6 +238,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!templateName) { alert('Please enter a Meta Template Name.'); return; }
         if (customers.length === 0) { alert('Please load or add customers.'); return; }
         const campaignData = { campaign_type: campaignType, template_name: templateName, image_url: imageUrl || null, customers: customers };
+        logToUI(`--- Sending campaign request to backend... ---`, 'info');
         try {
             const response = await fetch('/start-campaign', {
                 method: 'POST',
@@ -231,11 +247,13 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             const result = await response.json();
             if (!response.ok) throw new Error(result.detail || 'An unknown error occurred.');
+            logToUI(`✅ Backend accepted campaign. Watch for progress...`, 'success');
         } catch (error) {
             const logLine = document.createElement('span');
             logLine.textContent = `\n[${new Date().toLocaleTimeString()}] ❌ ERROR: Could not start campaign. ${error.message}`;
             logLine.className = 'log-line log-error';
             liveLog.appendChild(logLine);
+            logToUI(`❌ ERROR: Could not start campaign. ${error.message}`, 'error');
         }
     });
     sendReplyButton.addEventListener('click', async () => {
@@ -312,5 +330,5 @@ document.addEventListener('DOMContentLoaded', () => {
     connectWebSocket();
     fetchAndDisplayConversations();
     updatePresetDropdown();
-    setInterval(fetchAndDisplayConversations, 30000);
+    setInterval(fetchAndDisplayConversations, 25000);
 });
