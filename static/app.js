@@ -153,7 +153,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    let ws = null
+    let ws = null;
 
     function connectWebSocket() {
 
