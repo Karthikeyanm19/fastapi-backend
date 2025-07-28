@@ -153,24 +153,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    let ws = null;
-
     function connectWebSocket() {
-
-         if (ws && ws.readyState < 2) { 
-            console.log("WebSocket already connecting or open.");
-            return;
-        }
-
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${wsProtocol}//${window.location.host}/ws/log`;
-
-        console.log(`Attempting to connect WebSocket to: ${wsUrl}`);
         const ws = new WebSocket(wsUrl);
         
         ws.onopen = () => {
             liveLog.innerHTML = '<span class="log-info">Connected to backend log...</span>';
-            const logData = JSON.parse(event.data);
             logToUI('Connected to backend log...', 'success');
         };
         ws.onmessage = (event) => {
@@ -187,8 +176,6 @@ document.addEventListener('DOMContentLoaded', () => {
             reconnectMsg.textContent = '\nConnection lost. Attempting to reconnect...';
             reconnectMsg.className = 'log-line log-warning';
             liveLog.appendChild(reconnectMsg);
-            console.log('WebSocket connection closed. Reconnecting...');
-            ws = null; // Clear the variable so the next attempt can proceed
             logToUI('Connection lost. Attempting to reconnect...', 'warning');
             setTimeout(connectWebSocket, 3000);
         };
