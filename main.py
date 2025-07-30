@@ -202,6 +202,11 @@ async def run_campaign_logic(campaign_data: CampaignRequest):
                 components = [create_image_header(campaign_data.image_url), create_text_body([customer_name, product_name, offer_code]), create_dynamic_url_button(0, promo_link_id)]
             
             send_whatsapp_template(recipient_number, campaign_data.template_name, components)
+
+            # NEW: Save a record of the sent message to our database for the inbox
+            message_to_save = f"(Sent Campaign Template: '{campaign_data.template_name}')"
+            save_outgoing_message_to_db(recipient_number, message_to_save)
+            
             await log_manager.broadcast(f"✔ Sent '{campaign_data.template_name}' to {customer_name}", "success")
         except Exception as e:
             await log_manager.broadcast(f"❌ Failed to send to {customer_name}. Error: {e}", "error")
