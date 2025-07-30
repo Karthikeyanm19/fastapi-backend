@@ -1,3 +1,7 @@
+// Add this line at the top of your app.js file, before everything else
+let ws = null;
+
+
 document.addEventListener('DOMContentLoaded', () => {
     // --- 1. ELEMENT REFERENCES ---
     const campaignSelect = document.getElementById('campaign-select');
@@ -23,7 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const replyInput = document.getElementById('reply-input');
     const sendReplyButton = document.getElementById('send-reply-button');
 
-    // --- 2. DATA & STATE ---
+     // --- 2. DATA & STATE ---
     let customers = [];
     let currentConversationId = null;
     const campaigns = [
@@ -153,33 +157,42 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+        // Replace your old function with this new one
     function connectWebSocket() {
+        // First, check if a connection already exists or is in the process of connecting.
+        // readyState 0 is CONNECTING, 1 is OPEN.
+        if (ws && ws.readyState < 2) {
+            console.log("WebSocket already connecting or open.");
+            return;
+        }
+
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${wsProtocol}//${window.location.host}/ws/log`;
-        const ws = new WebSocket(wsUrl);
         
+        console.log(`Attempting to connect WebSocket to: ${wsUrl}`);
+        ws = new WebSocket(wsUrl); // Assign the new connection to our tracking variable
+
         ws.onopen = () => {
-            liveLog.innerHTML = '<span class="log-info">Connected to backend log...</span>';
+            console.log('WebSocket connection established.');
             logToUI('Connected to backend log...', 'success');
         };
+
         ws.onmessage = (event) => {
             const logData = JSON.parse(event.data);
             logToUI(logData.message, logData.status);
-            const logLine = document.createElement('span');
-            logLine.textContent = `\n[${new Date().toLocaleTimeString()}] ${logData.message}`;
-            logLine.className = `log-line log-${logData.status}`;
-            liveLog.appendChild(logLine);
-            liveLog.scrollTop = liveLog.scrollHeight;
         };
+
         ws.onclose = () => {
-            const reconnectMsg = document.createElement('span');
-            reconnectMsg.textContent = '\nConnection lost. Attempting to reconnect...';
-            reconnectMsg.className = 'log-line log-warning';
-            liveLog.appendChild(reconnectMsg);
+            console.log('WebSocket connection closed. Reconnecting...');
+            ws = null; // Clear the variable so the next attempt can proceed
             logToUI('Connection lost. Attempting to reconnect...', 'warning');
-            setTimeout(connectWebSocket, 3000);
+            setTimeout(connectWebSocket, 5000); // Wait 5 seconds before trying to reconnect
         };
-        ws.onerror = (error) => { ws.close(); };
+
+        ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            ws.close();
+        };
     }
 
     function savePresets(presets) { localStorage.setItem('campaignPresets', JSON.stringify(presets)); }
