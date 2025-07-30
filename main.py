@@ -222,8 +222,9 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception: log_manager.disconnect(websocket)
 
 @app.post("/start-campaign")
-def start_campaign(campaign_data: CampaignRequest, background_tasks: BackgroundTasks):
-    background_tasks.add_task(run_campaign_logic, campaign_data)
+async def start_campaign(campaign_data: CampaignRequest): # Note the 'async' keyword
+    # We now use asyncio.create_task to run the campaign in the background
+    asyncio.create_task(run_campaign_logic(campaign_data))
     return {"status": "Campaign has been started in the background."}
 
 @app.get("/conversations")
