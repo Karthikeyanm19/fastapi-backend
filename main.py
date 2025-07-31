@@ -259,11 +259,15 @@ async def run_campaign_logic(campaign_data: CampaignRequest):
             
             send_whatsapp_template(recipient_number, campaign_data.template_name, components)
             
+             # Corrected logic to render and save the message
             message_template = fetch_template_body_from_db(campaign_type)
-            message_to_save = f"(Sent Campaign: '{campaign_data.template_name}')"
+            message_to_save = f"(Sent Campaign Template: '{campaign_data.template_name}')"
             if message_template:
-                try: message_to_save = message_template.format(**customer_dict)
-                except KeyError: message_to_save = f"(Sent Campaign: '{campaign_data.template_name}') - render failed"
+                try:
+                    message_to_save = message_template.format(**customer_dict)
+                except KeyError:
+                    message_to_save = f"(Sent Campaign: '{campaign_data.template_name}') - render failed"
+            
             save_outgoing_message_to_db(recipient_number, message_to_save)
             
             await log_manager.broadcast(f"✔ Sent '{campaign_data.template_name}' to {customer_name}", "success")

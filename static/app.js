@@ -246,24 +246,42 @@ document.addEventListener('DOMContentLoaded', () => {
         logToUI(`✔ Manually added customer: ${name}.`, 'success');
         manualNameInput.value = ''; manualPhoneInput.value = ''; manualCcInput.value = '';
     });
-    startCampaignButton.addEventListener('click', async () => {
+
+        startCampaignButton.addEventListener('click', async () => {
         const campaignType = campaignSelect.value;
         const templateName = templateNameInput.value.trim();
         const imageUrl = imageUrlInput.value.trim();
         if (campaignType === 'Select a Campaign Structure') { alert('Please select a Campaign Structure.'); return; }
         if (!templateName) { alert('Please enter a Meta Template Name.'); return; }
         if (customers.length === 0) { alert('Please load or add customers.'); return; }
-        const campaignData = { campaign_type: campaignType, template_name: templateName, image_url: imageUrl || null, customers: customers };
+        
+        const campaignData = {
+            campaign_type: campaignType,
+            template_name: templateName,
+            image_url: imageUrl || null,
+            customers: customers
+        };
+        
         logToUI('--- Sending campaign request... ---', 'info');
+        
         try {
-            const response = await fetch('/start-campaign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(campaignData) });
+            const response = await fetch('/start-campaign', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(campaignData),
+            });
             const result = await response.json();
-            if (!response.ok) throw new Error(result.detail || 'An unknown error occurred.');
-            logToUI(`✅ Backend accepted campaign.`, 'success');
+            if (!response.ok) {
+                throw new Error(result.detail || 'An unknown error occurred.');
+            }
+            // This is the corrected success log
+            logToUI(`✅ Backend accepted campaign. Watch for progress...`, 'success');
         } catch (error) {
+            // This is the corrected error log
             logToUI(`❌ ERROR: Could not start campaign. ${error.message}`, 'error');
         }
     });
+
     sendReplyButton.addEventListener('click', async () => {
         const messageText = replyInput.value.trim();
         if (!messageText || !currentConversationId) return;
