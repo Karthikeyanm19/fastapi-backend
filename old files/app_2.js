@@ -1,3 +1,7 @@
+// Add this line at the top of your app.js file, before everything else
+let ws = null;
+
+
 document.addEventListener('DOMContentLoaded', () => {
     // --- 1. ELEMENT REFERENCES ---
     const campaignSelect = document.getElementById('campaign-select');
@@ -22,18 +26,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const messageHistory = document.getElementById('message-history');
     const replyInput = document.getElementById('reply-input');
     const sendReplyButton = document.getElementById('send-reply-button');
-    const templatesTableBody = document.getElementById('templates-table-body');
-    const templateFormTitle = document.getElementById('template-form-title');
-    const templateIdInput = document.getElementById('template-id-input');
-    const templateNameFormInput = document.getElementById('template-name-form-input');
-    const templateBodyFormInput = document.getElementById('template-body-form-input');
-    const saveTemplateButton = document.getElementById('save-template-button');
-    const clearTemplateFormButton = document.getElementById('clear-template-form-button');
 
-    // --- 2. DATA & STATE ---
+     // --- 2. DATA & STATE ---
     let customers = [];
     let currentConversationId = null;
-    let ws = null;
     const campaigns = [
         { displayName: "Simple Text (No Vars)", templateName: "simple_text" },
         { displayName: "Promo (Image Header Only)", templateName: "promo_image" },
@@ -44,17 +40,6 @@ document.addEventListener('DOMContentLoaded', () => {
     ];
 
     // --- 3. FUNCTIONS ---
-    function logToUI(message, status = 'info') {
-        const timestamp = new Date().toLocaleTimeString();
-        const logLine = document.createElement('span');
-        logLine.textContent = `\n[${timestamp}] ${message}`;
-        logLine.className = `log-line log-${status}`;
-        if(liveLog) {
-            liveLog.appendChild(logLine);
-            liveLog.scrollTop = liveLog.scrollHeight;
-        }
-    }
-
     function populateCampaignDropdown() {
         campaignSelect.innerHTML = '<option selected>Select a Campaign Structure</option>';
         campaigns.forEach(campaign => {
@@ -141,7 +126,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     a.href = '#';
                     a.textContent = senderId;
                     a.dataset.senderId = senderId;
-                    if (senderId === currentSelection) a.classList.add('active');
+                    if (senderId === currentSelection) {
+                        a.classList.add('active');
+                    }
                     a.addEventListener('click', async (event) => {
                         event.preventDefault();
                         currentConversationId = senderId;
@@ -170,22 +157,42 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+        // Replace your old function with this new one
     function connectWebSocket() {
-        if (ws && ws.readyState < 2) return;
+        // First, check if a connection already exists or is in the process of connecting.
+        // readyState 0 is CONNECTING, 1 is OPEN.
+        if (ws && ws.readyState < 2) {
+            console.log("WebSocket already connecting or open.");
+            return;
+        }
+
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${wsProtocol}//${window.location.host}/ws/log`;
-        ws = new WebSocket(wsUrl);
-        ws.onopen = () => logToUI('Connected to backend log...', 'success');
+        
+        console.log(`Attempting to connect WebSocket to: ${wsUrl}`);
+        ws = new WebSocket(wsUrl); // Assign the new connection to our tracking variable
+
+        ws.onopen = () => {
+            console.log('WebSocket connection established.');
+            logToUI('Connected to backend log...', 'success');
+        };
+
         ws.onmessage = (event) => {
             const logData = JSON.parse(event.data);
             logToUI(logData.message, logData.status);
         };
+
         ws.onclose = () => {
-            ws = null;
-            logToUI('Connection lost. Reconnecting...', 'warning');
-            setTimeout(connectWebSocket, 5000);
+            console.log('WebSocket connection closed. Reconnecting...');
+            ws = null; // Clear the variable so the next attempt can proceed
+            logToUI('Connection lost. Attempting to reconnect...', 'warning');
+            setTimeout(connectWebSocket, 5000); // Wait 5 seconds before trying to reconnect
         };
-        ws.onerror = (error) => { console.error('WebSocket error:', error); ws.close(); };
+
+        ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            ws.close();
+        };
     }
 
     function savePresets(presets) { localStorage.setItem('campaignPresets', JSON.stringify(presets)); }
@@ -200,27 +207,17 @@ document.addEventListener('DOMContentLoaded', () => {
             presetSelect.appendChild(option);
         }
     }
-    
-    async function fetchAndDisplayTemplates() {
-        try {
-            const response = await fetch('/templates');
-            const templates = await response.json();
-            templatesTableBody.innerHTML = '';
-            templates.forEach(template => {
-                const row = templatesTableBody.insertRow();
-                row.innerHTML = `<td>${template.template_name}</td><td>${template.template_body}</td><td><button class="btn btn-sm btn-outline-light edit-template-button" data-id="${template.id}" data-name="${template.template_name}" data-body="${template.template_body}">Edit</button> <button class="btn btn-sm btn-outline-danger delete-template-button" data-id="${template.id}">Delete</button></td>`;
-            });
-        } catch (error) {
-            console.error("Failed to fetch templates:", error);
-        }
+
+    function logToUI(message, status = 'info') {
+        const timestamp = new Date().toLocaleTimeString();
+        const logLine = document.createElement('span');
+        logLine.textContent = `\n[${timestamp}] ${message}`;
+        logLine.className = `log-line log-${status}`;
+        liveLog.appendChild(logLine);
+        // This is the auto-scroll logic
+        liveLog.scrollTop = liveLog.scrollHeight;
     }
-    
-    function clearTemplateForm() {
-        templateFormTitle.textContent = 'Add New Template';
-        templateIdInput.value = '';
-        templateNameFormInput.value = '';
-        templateBodyFormInput.value = '';
-    }
+
 
     // --- 4. EVENT LISTENERS ---
     loadCsvButton.addEventListener('click', () => csvFileInput.click());
@@ -229,13 +226,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!file) return;
         const reader = new FileReader();
         reader.onload = (e) => {
-            try { customers = parseCSV(e.target.result); displayCustomers(); logToUI(`✔ Loaded ${customers.length} customers.`, 'success'); }
-            catch (error) { logToUI(`❌ Error: Could not parse CSV.`, 'error'); alert('Error: Could not parse the CSV file.'); }
+            try { customers = parseCSV(e.target.result); displayCustomers();logToUI(`✔ Loaded ${customers.length} customers from CSV.`, 'success'); }
+            catch (error) {logToUI(`❌ Error: Could not parse the CSV file.`, 'error'); alert('Error: Could not parse the CSV file.'); }
         };
         reader.readAsText(file);
         event.target.value = '';
     });
-    clearListButton.addEventListener('click', () => { customers = []; displayCustomers(); logToUI('ℹ️ Customer list cleared.', 'info'); });
+    clearListButton.addEventListener('click', () => { customers = []; displayCustomers();logToUI('ℹ️ Customer list cleared.', 'info'); });
     manualAddButton.addEventListener('click', () => {
         const name = manualNameInput.value.trim();
         const phone = manualPhoneInput.value.trim();
@@ -254,13 +251,21 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!templateName) { alert('Please enter a Meta Template Name.'); return; }
         if (customers.length === 0) { alert('Please load or add customers.'); return; }
         const campaignData = { campaign_type: campaignType, template_name: templateName, image_url: imageUrl || null, customers: customers };
-        logToUI('--- Sending campaign request... ---', 'info');
+        logToUI(`--- Sending campaign request to backend... ---`, 'info');
         try {
-            const response = await fetch('/start-campaign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(campaignData) });
+            const response = await fetch('/start-campaign', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(campaignData),
+            });
             const result = await response.json();
             if (!response.ok) throw new Error(result.detail || 'An unknown error occurred.');
-            logToUI(`✅ Backend accepted campaign.`, 'success');
+            logToUI(`✅ Backend accepted campaign. Watch for progress...`, 'success');
         } catch (error) {
+            const logLine = document.createElement('span');
+            logLine.textContent = `\n[${new Date().toLocaleTimeString()}] ❌ ERROR: Could not start campaign. ${error.message}`;
+            logLine.className = 'log-line log-error';
+            liveLog.appendChild(logLine);
             logToUI(`❌ ERROR: Could not start campaign. ${error.message}`, 'error');
         }
     });
@@ -269,7 +274,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!messageText || !currentConversationId) return;
         sendReplyButton.disabled = true;
         try {
-            const response = await fetch(`/conversations/${currentConversationId}/reply`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: messageText }) });
+            const response = await fetch(`/conversations/${currentConversationId}/reply`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: messageText })
+            });
             if (!response.ok) throw new Error('Failed to send reply.');
             replyInput.value = '';
             const historyResponse = await fetch(`/conversations/${currentConversationId}`);
@@ -296,7 +305,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const presetName = prompt("Enter a name for this preset:");
         if (!presetName) return;
         const presets = loadPresets();
-        presets[presetName] = { campaign: campaignSelect.value, template: templateNameInput.value, imageUrl: imageUrlInput.value };
+        presets[presetName] = {
+            campaign: campaignSelect.value,
+            template: templateNameInput.value,
+            imageUrl: imageUrlInput.value
+        };
         savePresets(presets);
         updatePresetDropdown();
         alert(`Preset '${presetName}' saved!`);
@@ -323,44 +336,6 @@ document.addEventListener('DOMContentLoaded', () => {
             alert(`Preset '${presetName}' deleted.`);
         }
     });
-    saveTemplateButton.addEventListener('click', async () => {
-        const id = templateIdInput.value;
-        const name = templateNameFormInput.value.trim();
-        const body = templateBodyFormInput.value.trim();
-        if (!name || !body) { alert('Template Name and Body cannot be empty.'); return; }
-        const method = id ? 'PUT' : 'POST';
-        const url = id ? `/templates/${id}` : '/templates';
-        try {
-            const response = await fetch(url, { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ template_name: name, template_body: body }) });
-            if (!response.ok) throw new Error('Failed to save template.');
-            clearTemplateForm();
-            fetchAndDisplayTemplates();
-        } catch (error) {
-            alert("Error saving template.");
-        }
-    });
-    clearTemplateFormButton.addEventListener('click', clearTemplateForm);
-    templatesTableBody.addEventListener('click', async (event) => {
-        const target = event.target;
-        const id = target.dataset.id;
-        if (target.classList.contains('edit-template-button')) {
-            templateFormTitle.textContent = 'Edit Template';
-            templateIdInput.value = id;
-            templateNameFormInput.value = target.dataset.name;
-            templateBodyFormInput.value = target.dataset.body;
-        }
-        if (target.classList.contains('delete-template-button')) {
-            if (confirm('Are you sure you want to delete this template?')) {
-                try {
-                    const response = await fetch(`/templates/${id}`, { method: 'DELETE' });
-                    if (!response.ok) throw new Error('Failed to delete template.');
-                    fetchAndDisplayTemplates();
-                } catch (error) {
-                    alert("Error deleting template.");
-                }
-            }
-        }
-    });
 
     // --- 5. INITIALIZATION ---
     populateCampaignDropdown();
@@ -368,6 +343,5 @@ document.addEventListener('DOMContentLoaded', () => {
     connectWebSocket();
     fetchAndDisplayConversations();
     updatePresetDropdown();
-    setInterval(fetchAndDisplayConversations, 30000);
-    fetchAndDisplayTemplates();
+    setInterval(fetchAndDisplayConversations, 25000);
 });
