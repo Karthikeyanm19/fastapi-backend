@@ -26,13 +26,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const messageHistory = document.getElementById('message-history');
     const replyInput = document.getElementById('reply-input');
     const sendReplyButton = document.getElementById('send-reply-button');
-    const templatesTableBody = document.getElementById('templates-table-body');
-    const templateFormTitle = document.getElementById('template-form-title');
-    const templateIdInput = document.getElementById('template-id-input');
-    const templateNameFormInput = document.getElementById('template-name-form-input');
-    const templateBodyFormInput = document.getElementById('template-body-form-input');
-    const saveTemplateButton = document.getElementById('save-template-button');
-    const clearTemplateFormButton = document.getElementById('clear-template-form-button');
 
      // --- 2. DATA & STATE ---
     let customers = [];
@@ -225,95 +218,6 @@ document.addEventListener('DOMContentLoaded', () => {
         liveLog.scrollTop = liveLog.scrollHeight;
     }
 
-    // NEW: Function to fetch and display all templates
-    async function fetchAndDisplayTemplates() {
-        try {
-            const response = await fetch('/templates');
-            const templates = await response.json();
-            templatesTableBody.innerHTML = ''; // Clear the table
-
-            templates.forEach(template => {
-                const row = templatesTableBody.insertRow();
-                row.innerHTML = `
-                    <td>${template.template_name}</td>
-                    <td>${template.template_body}</td>
-                    <td>
-                        <button class="btn btn-sm btn-outline-light edit-template-button" data-id="${template.id}" data-name="${template.template_name}" data-body="${template.template_body}">Edit</button>
-                        <button class="btn btn-sm btn-outline-danger delete-template-button" data-id="${template.id}">Delete</button>
-                    </td>
-                `;
-            });
-        } catch (error) {
-            console.error("Failed to fetch templates:", error);
-        }
-    }
-    
-    // NEW: Function to clear the template form
-    function clearTemplateForm() {
-        templateFormTitle.textContent = 'Add New Template';
-        templateIdInput.value = '';
-        templateNameFormInput.value = '';
-        templateBodyFormInput.value = '';
-    }
-
-    // ... (All your other event listeners remain the same)
-
-    saveTemplateButton.addEventListener('click', async () => {
-        const id = templateIdInput.value;
-        const name = templateNameFormInput.value.trim();
-        const body = templateBodyFormInput.value.trim();
-
-        if (!name || !body) {
-            alert('Template Name and Body cannot be empty.');
-            return;
-        }
-
-        const method = id ? 'PUT' : 'POST';
-        const url = id ? `/templates/${id}` : '/templates';
-
-        try {
-            const response = await fetch(url, {
-                method: method,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ template_name: name, template_body: body })
-            });
-            if (!response.ok) throw new Error('Failed to save template.');
-
-            clearTemplateForm();
-            fetchAndDisplayTemplates(); // Refresh the list
-        } catch (error) {
-            console.error("Save template error:", error);
-            alert("Error saving template.");
-        }
-    });
-
-    clearTemplateFormButton.addEventListener('click', clearTemplateForm);
-
-    templatesTableBody.addEventListener('click', async (event) => {
-        const target = event.target;
-        const id = target.dataset.id;
-
-        if (target.classList.contains('edit-template-button')) {
-            templateFormTitle.textContent = 'Edit Template';
-            templateIdInput.value = id;
-            templateNameFormInput.value = target.dataset.name;
-            templateBodyFormInput.value = target.dataset.body;
-        }
-
-        if (target.classList.contains('delete-template-button')) {
-            if (confirm('Are you sure you want to delete this template?')) {
-                try {
-                    const response = await fetch(`/templates/${id}`, { method: 'DELETE' });
-                    if (!response.ok) throw new Error('Failed to delete template.');
-                    fetchAndDisplayTemplates(); // Refresh the list
-                } catch (error) {
-                    console.error("Delete template error:", error);
-                    alert("Error deleting template.");
-                }
-            }
-        }
-    });
-
 
     // --- 4. EVENT LISTENERS ---
     loadCsvButton.addEventListener('click', () => csvFileInput.click());
@@ -439,6 +343,5 @@ document.addEventListener('DOMContentLoaded', () => {
     connectWebSocket();
     fetchAndDisplayConversations();
     updatePresetDropdown();
-    fetchAndDisplayTemplates();
     setInterval(fetchAndDisplayConversations, 25000);
 });

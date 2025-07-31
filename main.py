@@ -26,20 +26,6 @@ DATABASE_CONFIG = {
     "password": os.environ.get('DB_PASSWORD', "YOUR_DATABASE_PASSWORD")
 }
 
-class Message(BaseModel): text: str; timestamp: str; direction: str
-class Reply(BaseModel): message: str
-
-# NEW: Pydantic model for a single template
-class Template(BaseModel):
-    id: int
-    template_name: str
-    template_body: str
-
-# NEW: Pydantic model for creating/updating a template (ID is not required)
-class TemplateCreate(BaseModel):
-    template_name: str
-    template_body: str
-
 class Customer(BaseModel):
     phone: str
     name: str
@@ -181,55 +167,6 @@ def save_incoming_message_to_db(sender_id, message_text):
     finally:
         if conn: conn.close()
 
-def fetch_templates_from_db():
-    conn = None
-    try:
-        conn = psycopg2.connect(**DATABASE_CONFIG)
-        cur = conn.cursor()
-        cur.execute("SELECT id, template_name, template_body FROM templates ORDER BY template_name;")
-        templates = [{"id": row[0], "template_name": row[1], "template_body": row[2]} for row in cur.fetchall()]
-        cur.close()
-        return templates
-    finally:
-        if conn: conn.close()
-
-def add_template_to_db(template: TemplateCreate):
-    conn = None
-    try:
-        conn = psycopg2.connect(**DATABASE_CONFIG)
-        cur = conn.cursor()
-        cur.execute("INSERT INTO templates (template_name, template_body) VALUES (%s, %s) RETURNING id;", (template.template_name, template.template_body))
-        new_id = cur.fetchone()[0]
-        conn.commit()
-        cur.close()
-        return {"id": new_id, **template.model_dump()}
-    finally:
-        if conn: conn.close()
-
-def update_template_in_db(template_id: int, template: TemplateCreate):
-    conn = None
-    try:
-        conn = psycopg2.connect(**DATABASE_CONFIG)
-        cur = conn.cursor()
-        cur.execute("UPDATE templates SET template_name = %s, template_body = %s WHERE id = %s;", (template.template_name, template.template_body, template_id))
-        conn.commit()
-        cur.close()
-        return {"status": "success"}
-    finally:
-        if conn: conn.close()
-
-def delete_template_from_db(template_id: int):
-    conn = None
-    try:
-        conn = psycopg2.connect(**DATABASE_CONFIG)
-        cur = conn.cursor()
-        cur.execute("DELETE FROM templates WHERE id = %s;", (template_id,))
-        conn.commit()
-        cur.close()
-        return {"status": "success"}
-    finally:
-        if conn: conn.close()        
-
 # ===================================================================
 # --- 4. Campaign Logic (Background Task) ---
 # ===================================================================
@@ -314,23 +251,6 @@ def post_reply(sender_id: str, reply: Reply, background_tasks: BackgroundTasks):
         return {"status": "Reply sent successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    
-    # --- NEW: Template Management Endpoints ---
-@app.get("/templates", response_model=List[Template])
-def get_templates():
-    return fetch_templates_from_db()
-
-@app.post("/templates", response_model=Template)
-def create_template(template: TemplateCreate):
-    return add_template_to_db(template)
-
-@app.put("/templates/{template_id}")
-def update_template(template_id: int, template: TemplateCreate):
-    return update_template_in_db(template_id, template)
-
-@app.delete("/templates/{template_id}")
-def delete_template(template_id: int):
-    return delete_template_from_db(template_id)
 
 # ===================================================================
 # --- 6. Serve the Frontend ---
