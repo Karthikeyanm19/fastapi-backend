@@ -4,8 +4,9 @@ import json
 import time
 import psycopg2
 import requests
+import re
 from datetime import datetime
-from typing import List, Optional, Dict
+from typing import List, Optional
 
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,7 +36,6 @@ class Customer(BaseModel):
     promo_link_id: Optional[str] = None
 
 class CampaignRequest(BaseModel):
-    campaign_type: str
     template_name: str
     image_url: Optional[str] = None
     customers: List[Customer]
@@ -88,15 +88,12 @@ def create_text_body(variables):
 def create_image_header(image_url):
     return {"type": "header", "parameters": [{"type": "image", "image": {"link": image_url}}]}
 
-def create_dynamic_url_button(button_index, url_variable):
-    return {"type": "button", "sub_type": "url", "index": str(button_index), "parameters": [{"type": "text", "text": url_variable}]}
-
-def send_whatsapp_template(recipient_number, template_name, components=None, language_code="en_US"):
+def send_whatsapp_template(recipient_number, template_name, components=None):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
-    template_data = {"name": template_name, "language": {"code": language_code}}
+    template_data = {"name": template_name, "language": {"code": "en_US"}}
     if components:
-        template_data["components"] = [comp for comp in components if comp is not None]
+        template_data["components"] = [c for c in components if c is not None]
     payload = {"messaging_product": "whatsapp", "to": recipient_number, "type": "template", "template": template_data}
     response = requests.post(url, headers=headers, data=json.dumps(payload))
     response.raise_for_status()
@@ -117,11 +114,7 @@ def fetch_conversations_from_db():
         cur = conn.cursor()
         cur.execute("SELECT DISTINCT sender_id FROM messages ORDER BY sender_id;")
         conversations = cur.fetchall()
-        cur.close()
         return [convo[0] for convo in conversations]
-    except Exception as e:
-        print(f"Database Error: {e}")
-        return {"error": str(e)}
     finally:
         if conn: conn.close()
 
@@ -132,12 +125,7 @@ def fetch_messages_for_sender_from_db(sender_id: str):
         cur = conn.cursor()
         cur.execute("SELECT message_text, created_at, direction FROM messages WHERE sender_id = %s ORDER BY created_at ASC;", (sender_id,))
         messages = cur.fetchall()
-        cur.close()
-        message_list = [{"text": msg[0], "timestamp": msg[1].isoformat(), "direction": (msg[2] or '').strip("'")} for msg in messages]
-        return message_list
-    except Exception as e:
-        print(f"Database Error: {e}")
-        return {"error": str(e)}
+        return [{"text": m[0], "timestamp": m[1].isoformat(), "direction": (m[2] or '').strip("'")} for m in messages]
     finally:
         if conn: conn.close()
 
@@ -146,12 +134,8 @@ def save_outgoing_message_to_db(sender_id, message_text):
     try:
         conn = psycopg2.connect(**DATABASE_CONFIG)
         cur = conn.cursor()
-        sql_query = "INSERT INTO messages (sender_id, message_text, direction) VALUES (%s, %s, 'outgoing');"
-        cur.execute(sql_query, (sender_id, message_text))
+        cur.execute("INSERT INTO messages (sender_id, message_text, direction) VALUES (%s, %s, 'outgoing');", (sender_id, message_text))
         conn.commit()
-        cur.close()
-    except Exception as e:
-        print(f"❌ DB Error (save outgoing): {e}")
     finally:
         if conn: conn.close()
         
@@ -160,13 +144,8 @@ def save_incoming_message_to_db(sender_id, message_text):
     try:
         conn = psycopg2.connect(**DATABASE_CONFIG)
         cur = conn.cursor()
-        sql_query = "INSERT INTO messages (sender_id, message_text, direction) VALUES (%s, %s, 'incoming');"
-        cur.execute(sql_query, (sender_id, message_text))
+        cur.execute("INSERT INTO messages (sender_id, message_text, direction) VALUES (%s, %s, 'incoming');", (sender_id, message_text))
         conn.commit()
-        cur.close()
-        print(f"✔ Saved incoming message from {sender_id} to database.")
-    except Exception as e:
-        print(f"❌ DB Error (save incoming): {e}")
     finally:
         if conn: conn.close()
 
@@ -230,8 +209,10 @@ def delete_template_from_db(template_id: int):
 # --- 4. Campaign Logic (Background Task) ---
 # ===================================================================
 async def run_campaign_logic(campaign_data: CampaignRequest):
-    await log_manager.broadcast(f"--- Starting Campaign '{campaign_data.template_name}' ---", "info")
-    campaign_type = campaign_data.campaign_type
+    template_name = campaign_data.template_name
+    await log_manager.broadcast(f"--- Starting Campaign '{template_name}' ---", "info")
+    
+    message_template = fetch_template_body_from_db(template_name)
     
     for customer_data in campaign_data.customers:
         customer_dict = customer_data.model_dump()
@@ -243,37 +224,31 @@ async def run_campaign_logic(campaign_data: CampaignRequest):
             continue
         try:
             components = []
-            if campaign_type == "promo_image":
-                if not campaign_data.image_url: await log_manager.broadcast(f"⚠️ Skipping {customer_name}: Image URL required.", "warning"); continue
-                components = [create_image_header(campaign_data.image_url)]
-            elif campaign_type == "order_update":
-                components = [create_text_body([customer_name, customer_dict.get('order_status', 'processed')])]
-            elif campaign_type == "image_body":
-                if not campaign_data.image_url: await log_manager.broadcast(f"⚠️ Skipping {customer_name}: Image URL required.", "warning"); continue
-                components = [create_image_header(campaign_data.image_url), create_text_body([customer_name])]
-            elif campaign_type == "tracking_link":
-                components = [create_text_body([customer_name]), create_dynamic_url_button(0, customer_dict.get('tracking_id', 'N/A'))]
-            elif campaign_type == "full_template":
-                if not campaign_data.image_url: await log_manager.broadcast(f"⚠️ Skipping {customer_name}: Image URL required.", "warning"); continue
-                components = [create_image_header(campaign_data.image_url), create_text_body([customer_name, customer_dict.get('product_name', 'product'), customer_dict.get('offer_code', 'SALE')]), create_dynamic_url_button(0, customer_dict.get('promo_link_id', 'promo'))]
             
-            send_whatsapp_template(recipient_number, campaign_data.template_name, components)
+            if campaign_data.image_url:
+                components.append(create_image_header(campaign_data.image_url))
             
-             # Corrected logic to render and save the message
-            message_template = fetch_template_body_from_db(campaign_type)
-            message_to_save = f"(Sent Campaign Template: '{campaign_data.template_name}')"
+            if message_template:
+                placeholders = [p.strip('{}') for p in re.findall(r'\{.*?\}', message_template)]
+                body_vars = [customer_dict.get(p) for p in placeholders if customer_dict.get(p) is not None]
+                if body_vars:
+                    components.append(create_text_body(body_vars))
+            
+            send_whatsapp_template(recipient_number, template_name, components)
+            
+            message_to_save = f"(Sent Campaign: '{template_name}')"
             if message_template:
                 try:
                     message_to_save = message_template.format(**customer_dict)
                 except KeyError:
-                    message_to_save = f"(Sent Campaign: '{campaign_data.template_name}') - render failed"
+                    message_to_save = f"(Sent Campaign: '{template_name}') - render failed"
             
             save_outgoing_message_to_db(recipient_number, message_to_save)
-            
-            await log_manager.broadcast(f"✔ Sent '{campaign_data.template_name}' to {customer_name}", "success")
+            await log_manager.broadcast(f"✔ Sent '{template_name}' to {customer_name}", "success")
         except Exception as e:
             await log_manager.broadcast(f"❌ Failed to send to {customer_name}. Error: {e}", "error")
         await asyncio.sleep(1)
+        
     await log_manager.broadcast("--- Campaign Finished ---", "info")
 
 # ===================================================================

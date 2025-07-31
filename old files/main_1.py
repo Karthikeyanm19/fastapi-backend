@@ -7,7 +7,7 @@ import requests
 from datetime import datetime
 from typing import List, Optional, Dict
 
-from fastapi import FastAPI, BackgroundTasks, HTTPException, WebSocket
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -15,16 +15,14 @@ from pydantic import BaseModel
 # ===================================================================
 # --- 1. CONFIGURATION & MODELS ---
 # ===================================================================
-ACCESS_TOKEN = os.environ.get('ACCESS_TOKEN', 'YOUR_FACEBOOK_ACCESS_TOKEN')
-PHONE_NUMBER_ID = os.environ.get('PHONE_NUMBER_ID', '709687138895035')
-
+ACCESS_TOKEN = os.environ.get('ACCESS_TOKEN')
+PHONE_NUMBER_ID = os.environ.get('PHONE_NUMBER_ID')
 DATABASE_CONFIG = {
-    "host": os.environ.get('DB_HOST', "aws-0-ap-south-1.pooler.supabase.com"),
-    "port": os.environ.get('DB_PORT', "6543"),
-    "dbname": os.environ.get('DB_NAME', "postgres"),
-    "user": os.environ.get('DB_USER', "postgres.hiteczxisxvecnuncmzp"),
-    "password": os.environ.get('DB_PASSWORD', "YOUR_DATABASE_PASSWORD")
+    "host": os.environ.get('DB_HOST'), "port": os.environ.get('DB_PORT'),
+    "dbname": os.environ.get('DB_NAME'), "user": os.environ.get('DB_USER'),
+    "password": os.environ.get('DB_PASSWORD')
 }
+VERIFY_TOKEN = os.environ.get('VERIFY_TOKEN', 'your-secret-webhook-token')
 
 class Customer(BaseModel):
     phone: str
@@ -49,6 +47,15 @@ class Message(BaseModel):
 
 class Reply(BaseModel):
     message: str
+
+class Template(BaseModel):
+    id: int
+    template_name: str
+    template_body: str
+
+class TemplateCreate(BaseModel):
+    template_name: str
+    template_body: str
 
 # ===================================================================
 # --- 2. WebSocket Log Manager ---
@@ -106,8 +113,7 @@ def send_text_reply(recipient_number, message_text):
 def fetch_conversations_from_db():
     conn = None
     try:
-        conn_string = f"host={DATABASE_CONFIG['host']} dbname={DATABASE_CONFIG['dbname']} user={DATABASE_CONFIG['user']} password={DATABASE_CONFIG['password']} port={DATABASE_CONFIG['port']} options='-c pool_mode=transaction' connect_timeout=10"
-        conn = psycopg2.connect(conn_string)
+        conn = psycopg2.connect(**DATABASE_CONFIG)
         cur = conn.cursor()
         cur.execute("SELECT DISTINCT sender_id FROM messages ORDER BY sender_id;")
         conversations = cur.fetchall()
@@ -122,8 +128,7 @@ def fetch_conversations_from_db():
 def fetch_messages_for_sender_from_db(sender_id: str):
     conn = None
     try:
-        conn_string = f"host={DATABASE_CONFIG['host']} dbname={DATABASE_CONFIG['dbname']} user={DATABASE_CONFIG['user']} password={DATABASE_CONFIG['password']} port={DATABASE_CONFIG['port']} options='-c pool_mode=transaction' connect_timeout=10"
-        conn = psycopg2.connect(conn_string)
+        conn = psycopg2.connect(**DATABASE_CONFIG)
         cur = conn.cursor()
         cur.execute("SELECT message_text, created_at, direction FROM messages WHERE sender_id = %s ORDER BY created_at ASC;", (sender_id,))
         messages = cur.fetchall()
@@ -139,8 +144,7 @@ def fetch_messages_for_sender_from_db(sender_id: str):
 def save_outgoing_message_to_db(sender_id, message_text):
     conn = None
     try:
-        conn_string = f"host={DATABASE_CONFIG['host']} dbname={DATABASE_CONFIG['dbname']} user={DATABASE_CONFIG['user']} password={DATABASE_CONFIG['password']} port={DATABASE_CONFIG['port']} options='-c pool_mode=transaction' connect_timeout=10"
-        conn = psycopg2.connect(conn_string)
+        conn = psycopg2.connect(**DATABASE_CONFIG)
         cur = conn.cursor()
         sql_query = "INSERT INTO messages (sender_id, message_text, direction) VALUES (%s, %s, 'outgoing');"
         cur.execute(sql_query, (sender_id, message_text))
@@ -150,12 +154,11 @@ def save_outgoing_message_to_db(sender_id, message_text):
         print(f"❌ DB Error (save outgoing): {e}")
     finally:
         if conn: conn.close()
-
+        
 def save_incoming_message_to_db(sender_id, message_text):
     conn = None
     try:
-        conn_string = f"host={DATABASE_CONFIG['host']} dbname={DATABASE_CONFIG['dbname']} user={DATABASE_CONFIG['user']} password={DATABASE_CONFIG['password']} port={DATABASE_CONFIG['port']} options='-c pool_mode=transaction' connect_timeout=10"
-        conn = psycopg2.connect(conn_string)
+        conn = psycopg2.connect(**DATABASE_CONFIG)
         cur = conn.cursor()
         sql_query = "INSERT INTO messages (sender_id, message_text, direction) VALUES (%s, %s, 'incoming');"
         cur.execute(sql_query, (sender_id, message_text))
@@ -167,6 +170,62 @@ def save_incoming_message_to_db(sender_id, message_text):
     finally:
         if conn: conn.close()
 
+def fetch_template_body_from_db(template_name: str):
+    conn = None
+    try:
+        conn = psycopg2.connect(**DATABASE_CONFIG)
+        cur = conn.cursor()
+        cur.execute("SELECT template_body FROM templates WHERE template_name = %s;", (template_name,))
+        result = cur.fetchone()
+        return result[0] if result else None
+    finally:
+        if conn: conn.close()
+
+def fetch_templates_from_db():
+    conn = None
+    try:
+        conn = psycopg2.connect(**DATABASE_CONFIG)
+        cur = conn.cursor()
+        cur.execute("SELECT id, template_name, template_body FROM templates ORDER BY template_name;")
+        templates = [{"id": r[0], "template_name": r[1], "template_body": r[2]} for r in cur.fetchall()]
+        return templates
+    finally:
+        if conn: conn.close()
+
+def add_template_to_db(template: TemplateCreate):
+    conn = None
+    try:
+        conn = psycopg2.connect(**DATABASE_CONFIG)
+        cur = conn.cursor()
+        cur.execute("INSERT INTO templates (template_name, template_body) VALUES (%s, %s) RETURNING id;", (template.template_name, template.template_body))
+        new_id = cur.fetchone()[0]
+        conn.commit()
+        return {"id": new_id, **template.model_dump()}
+    finally:
+        if conn: conn.close()
+
+def update_template_in_db(template_id: int, template: TemplateCreate):
+    conn = None
+    try:
+        conn = psycopg2.connect(**DATABASE_CONFIG)
+        cur = conn.cursor()
+        cur.execute("UPDATE templates SET template_name = %s, template_body = %s WHERE id = %s;", (template.template_name, template.template_body, template_id))
+        conn.commit()
+        return {"status": "success"}
+    finally:
+        if conn: conn.close()
+
+def delete_template_from_db(template_id: int):
+    conn = None
+    try:
+        conn = psycopg2.connect(**DATABASE_CONFIG)
+        cur = conn.cursor()
+        cur.execute("DELETE FROM templates WHERE id = %s;", (template_id,))
+        conn.commit()
+        return {"status": "success"}
+    finally:
+        if conn: conn.close()
+
 # ===================================================================
 # --- 4. Campaign Logic (Background Task) ---
 # ===================================================================
@@ -174,9 +233,11 @@ async def run_campaign_logic(campaign_data: CampaignRequest):
     await log_manager.broadcast(f"--- Starting Campaign '{campaign_data.template_name}' ---", "info")
     campaign_type = campaign_data.campaign_type
     
-    for customer in campaign_data.customers:
-        recipient_number = f"{customer.country_code or ''}{customer.phone}"
-        customer_name = customer.name
+    for customer_data in campaign_data.customers:
+        customer_dict = customer_data.model_dump()
+        recipient_number = f"{customer_dict.get('country_code', '')}{customer_dict.get('phone', '')}"
+        customer_name = customer_dict.get('name', '')
+
         if not recipient_number or not customer_name:
             await log_manager.broadcast(f"⚠️ Skipping row due to missing name or phone.", "warning")
             continue
@@ -186,25 +247,27 @@ async def run_campaign_logic(campaign_data: CampaignRequest):
                 if not campaign_data.image_url: await log_manager.broadcast(f"⚠️ Skipping {customer_name}: Image URL required.", "warning"); continue
                 components = [create_image_header(campaign_data.image_url)]
             elif campaign_type == "order_update":
-                order_status = customer.order_status or 'processed'
-                components = [create_text_body([customer_name, order_status])]
+                components = [create_text_body([customer_name, customer_dict.get('order_status', 'processed')])]
             elif campaign_type == "image_body":
                 if not campaign_data.image_url: await log_manager.broadcast(f"⚠️ Skipping {customer_name}: Image URL required.", "warning"); continue
                 components = [create_image_header(campaign_data.image_url), create_text_body([customer_name])]
             elif campaign_type == "tracking_link":
-                tracking_id = customer.tracking_id or 'not-available'
-                components = [create_text_body([customer_name]), create_dynamic_url_button(0, tracking_id)]
+                components = [create_text_body([customer_name]), create_dynamic_url_button(0, customer_dict.get('tracking_id', 'N/A'))]
             elif campaign_type == "full_template":
                 if not campaign_data.image_url: await log_manager.broadcast(f"⚠️ Skipping {customer_name}: Image URL required.", "warning"); continue
-                product_name = customer.product_name or 'our latest product'
-                offer_code = customer.offer_code or 'SALE25'
-                promo_link_id = customer.promo_link_id or 'default-promo'
-                components = [create_image_header(campaign_data.image_url), create_text_body([customer_name, product_name, offer_code]), create_dynamic_url_button(0, promo_link_id)]
+                components = [create_image_header(campaign_data.image_url), create_text_body([customer_name, customer_dict.get('product_name', 'product'), customer_dict.get('offer_code', 'SALE')]), create_dynamic_url_button(0, customer_dict.get('promo_link_id', 'promo'))]
             
             send_whatsapp_template(recipient_number, campaign_data.template_name, components)
-
-            # NEW: Save a record of the sent message to our database for the inbox
+            
+             # Corrected logic to render and save the message
+            message_template = fetch_template_body_from_db(campaign_type)
             message_to_save = f"(Sent Campaign Template: '{campaign_data.template_name}')"
+            if message_template:
+                try:
+                    message_to_save = message_template.format(**customer_dict)
+                except KeyError:
+                    message_to_save = f"(Sent Campaign: '{campaign_data.template_name}') - render failed"
+            
             save_outgoing_message_to_db(recipient_number, message_to_save)
             
             await log_manager.broadcast(f"✔ Sent '{campaign_data.template_name}' to {customer_name}", "success")
@@ -227,8 +290,7 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception: log_manager.disconnect(websocket)
 
 @app.post("/start-campaign")
-async def start_campaign(campaign_data: CampaignRequest): # Note the 'async' keyword
-    # We now use asyncio.create_task to run the campaign in the background
+async def start_campaign(campaign_data: CampaignRequest):
     asyncio.create_task(run_campaign_logic(campaign_data))
     return {"status": "Campaign has been started in the background."}
 
@@ -239,8 +301,7 @@ def get_conversations():
 @app.get("/conversations/{sender_id}", response_model=List[Message])
 def get_conversation_history(sender_id: str):
     messages = fetch_messages_for_sender_from_db(sender_id)
-    if isinstance(messages, dict) and "error" in messages:
-        raise HTTPException(status_code=500, detail=messages["error"])
+    if isinstance(messages, dict): raise HTTPException(status_code=500, detail=messages.get("error"))
     return messages
 
 @app.post("/conversations/{sender_id}/reply")
@@ -249,12 +310,46 @@ def post_reply(sender_id: str, reply: Reply, background_tasks: BackgroundTasks):
         send_text_reply(sender_id, reply.message)
         background_tasks.add_task(save_outgoing_message_to_db, sender_id, reply.message)
         return {"status": "Reply sent successfully"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e: raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/whatsapp-webhook")
+async def whatsapp_webhook(request: Request):
+    data = await request.json()
+    print("Webhook received:", json.dumps(data, indent=2))
+    try:
+        if data.get("object") == "whatsapp_business_account":
+            for entry in data.get("entry", []):
+                for change in entry.get("changes", []):
+                    if change.get("field") == "messages":
+                        message_data = change.get("value", {}).get("messages", [{}])[0]
+                        if message_data.get("type") == "text":
+                            sender_id = message_data.get("from")
+                            message_text = message_data.get("text", {}).get("body")
+                            if sender_id and message_text: save_incoming_message_to_db(sender_id, message_text)
+    except Exception as e: print(f"Error processing webhook: {e}")
+    return {"status": "ok"}
+
+@app.get("/whatsapp-webhook")
+async def whatsapp_verify(request: Request):
+    if request.query_params.get("hub.mode") == "subscribe" and request.query_params.get("hub.challenge"):
+        if request.query_params.get("hub.verify_token") == VERIFY_TOKEN:
+            return int(request.query_params.get("hub.challenge"))
+        return "Verification token mismatch", 403
+    return "Hello webhook"
+
+@app.get("/templates", response_model=List[Template])
+def get_templates(): return fetch_templates_from_db()
+
+@app.post("/templates", response_model=Template)
+def create_template(template: TemplateCreate): return add_template_to_db(template)
+
+@app.put("/templates/{template_id}")
+def update_template(template_id: int, template: TemplateCreate): return update_template_in_db(template_id, template)
+
+@app.delete("/templates/{template_id}")
+def delete_template(template_id: int): return delete_template_from_db(template_id)
 
 # ===================================================================
 # --- 6. Serve the Frontend ---
 # ===================================================================
-# This mounts the 'static' folder to the root of the site and serves index.html
-# IMPORTANT: This must be the LAST route added to the app.
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

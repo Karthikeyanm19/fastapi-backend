@@ -1,7 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
     // --- 1. ELEMENT REFERENCES ---
-    const campaignSelect = document.getElementById('campaign-select');
-    const templateNameInput = document.getElementById('template-name-input');
+    const templateSelect = document.getElementById('template-select');
     const imageUrlInput = document.getElementById('image-url-input');
     const manualNameInput = document.getElementById('manual-name-input');
     const manualCcInput = document.getElementById('manual-cc-input');
@@ -34,14 +33,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let customers = [];
     let currentConversationId = null;
     let ws = null;
-    const campaigns = [
-        { displayName: "Simple Text (No Vars)", templateName: "simple_text" },
-        { displayName: "Promo (Image Header Only)", templateName: "promo_image" },
-        { displayName: "Order Update (Body Vars Only)", templateName: "order_update" },
-        { displayName: "Image Header + Body Vars", templateName: "image_body" },
-        { displayName: "Tracking Link (Body + Button)", templateName: "tracking_link" },
-        { displayName: "Full Template (Header + Body + Button)", templateName: "full_template" }
-    ];
 
     // --- 3. FUNCTIONS ---
     function logToUI(message, status = 'info') {
@@ -53,16 +44,6 @@ document.addEventListener('DOMContentLoaded', () => {
             liveLog.appendChild(logLine);
             liveLog.scrollTop = liveLog.scrollHeight;
         }
-    }
-
-    function populateCampaignDropdown() {
-        campaignSelect.innerHTML = '<option selected>Select a Campaign Structure</option>';
-        campaigns.forEach(campaign => {
-            const option = document.createElement('option');
-            option.value = campaign.templateName;
-            option.textContent = campaign.displayName;
-            campaignSelect.appendChild(option);
-        });
     }
 
     function displayCustomers() {
@@ -123,7 +104,7 @@ document.addEventListener('DOMContentLoaded', () => {
             wrapper.appendChild(bubble);
             messageHistory.appendChild(wrapper);
         });
-        messageHistory.scrollTop = messageHistory.scrollHeight;
+        setTimeout(() => { messageHistory.scrollTop = messageHistory.scrollHeight; }, 0);
     }
 
     async function fetchAndDisplayConversations() {
@@ -201,6 +182,22 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
+    async function populateTemplateDropdown() {
+        try {
+            const response = await fetch('/templates');
+            const templates = await response.json();
+            templateSelect.innerHTML = '<option selected>Select a template...</option>';
+            templates.forEach(template => {
+                const option = document.createElement('option');
+                option.value = template.template_name;
+                option.textContent = `${template.template_name}`;
+                templateSelect.appendChild(option);
+            });
+        } catch (error) {
+            templateSelect.innerHTML = '<option selected>Error loading templates</option>';
+        }
+    }
+    
     async function fetchAndDisplayTemplates() {
         try {
             const response = await fetch('/templates');
@@ -246,42 +243,22 @@ document.addEventListener('DOMContentLoaded', () => {
         logToUI(`✔ Manually added customer: ${name}.`, 'success');
         manualNameInput.value = ''; manualPhoneInput.value = ''; manualCcInput.value = '';
     });
-
-        startCampaignButton.addEventListener('click', async () => {
-        const campaignType = campaignSelect.value;
-        const templateName = templateNameInput.value.trim();
+    startCampaignButton.addEventListener('click', async () => {
+        const templateName = templateSelect.value;
         const imageUrl = imageUrlInput.value.trim();
-        if (campaignType === 'Select a Campaign Structure') { alert('Please select a Campaign Structure.'); return; }
-        if (!templateName) { alert('Please enter a Meta Template Name.'); return; }
+        if (templateName === 'Select a template...') { alert('Please select a template.'); return; }
         if (customers.length === 0) { alert('Please load or add customers.'); return; }
-        
-        const campaignData = {
-            campaign_type: campaignType,
-            template_name: templateName,
-            image_url: imageUrl || null,
-            customers: customers
-        };
-        
+        const campaignData = { template_name: templateName, image_url: imageUrl || null, customers: customers };
         logToUI('--- Sending campaign request... ---', 'info');
-        
         try {
-            const response = await fetch('/start-campaign', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(campaignData),
-            });
+            const response = await fetch('/start-campaign', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(campaignData) });
             const result = await response.json();
-            if (!response.ok) {
-                throw new Error(result.detail || 'An unknown error occurred.');
-            }
-            // This is the corrected success log
-            logToUI(`✅ Backend accepted campaign. Watch for progress...`, 'success');
+            if (!response.ok) throw new Error(result.detail || 'An unknown error occurred.');
+            logToUI(`✅ Backend accepted campaign.`, 'success');
         } catch (error) {
-            // This is the corrected error log
             logToUI(`❌ ERROR: Could not start campaign. ${error.message}`, 'error');
         }
     });
-
     sendReplyButton.addEventListener('click', async () => {
         const messageText = replyInput.value.trim();
         if (!messageText || !currentConversationId) return;
@@ -314,7 +291,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const presetName = prompt("Enter a name for this preset:");
         if (!presetName) return;
         const presets = loadPresets();
-        presets[presetName] = { campaign: campaignSelect.value, template: templateNameInput.value, imageUrl: imageUrlInput.value };
+        presets[presetName] = { template: templateSelect.value, imageUrl: imageUrlInput.value };
         savePresets(presets);
         updatePresetDropdown();
         alert(`Preset '${presetName}' saved!`);
@@ -324,8 +301,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const presets = loadPresets();
         if (presets[presetName]) {
             const preset = presets[presetName];
-            campaignSelect.value = preset.campaign;
-            templateNameInput.value = preset.template;
+            templateSelect.value = preset.template;
             imageUrlInput.value = preset.imageUrl;
             imageUrlInput.dispatchEvent(new Event('blur'));
         }
@@ -353,6 +329,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!response.ok) throw new Error('Failed to save template.');
             clearTemplateForm();
             fetchAndDisplayTemplates();
+            populateTemplateDropdown();
         } catch (error) {
             alert("Error saving template.");
         }
@@ -373,6 +350,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const response = await fetch(`/templates/${id}`, { method: 'DELETE' });
                     if (!response.ok) throw new Error('Failed to delete template.');
                     fetchAndDisplayTemplates();
+                    populateTemplateDropdown();
                 } catch (error) {
                     alert("Error deleting template.");
                 }
@@ -381,11 +359,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- 5. INITIALIZATION ---
-    populateCampaignDropdown();
     displayCustomers();
     connectWebSocket();
     fetchAndDisplayConversations();
     updatePresetDropdown();
     setInterval(fetchAndDisplayConversations, 25000);
     fetchAndDisplayTemplates();
+    populateTemplateDropdown();
 });
