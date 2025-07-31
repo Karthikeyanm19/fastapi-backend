@@ -7,7 +7,7 @@ import requests
 from datetime import datetime
 from typing import List, Optional, Dict
 
-from fastapi import FastAPI, BackgroundTasks, HTTPException, WebSocket
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
