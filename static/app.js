@@ -123,7 +123,10 @@ document.addEventListener('DOMContentLoaded', () => {
             wrapper.appendChild(bubble);
             messageHistory.appendChild(wrapper);
         });
-        messageHistory.scrollTop = messageHistory.scrollHeight;
+    // ... at the end of the function
+        setTimeout(() => {
+            messageHistory.scrollTop = messageHistory.scrollHeight;
+        }, 0);
     }
 
     async function fetchAndDisplayConversations() {
@@ -389,3 +392,4 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(fetchAndDisplayConversations, 30000);
     fetchAndDisplayTemplates();
 });
+
